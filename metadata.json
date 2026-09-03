@@ -2,5 +2,7 @@
   "name": "CipherThought",
   "description": "An enterprise-grade, zero-trust private journaling and brainstorming companion powered by Gemini AI and secure isolated Firestore.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
