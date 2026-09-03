@@ -1,0 +1,50 @@
+{
+  "entities": [
+    {
+      "name": "UserProfile",
+      "collection": "users",
+      "fields": [
+        { "name": "uid", "type": "string", "description": "Unique Firebase Auth identifier" },
+        { "name": "email", "type": "string", "description": "User email address" },
+        { "name": "displayName", "type": "string", "description": "User display name" },
+        { "name": "createdAt", "type": "timestamp", "description": "Account registration timestamp" },
+        { "name": "lastLoginAt", "type": "timestamp", "description": "Last sign-in timestamp" },
+        { "name": "zeroKnowledgeVaultEnabled", "type": "boolean", "description": "Whether client-side AES-GCM vault encryption is enabled" }
+      ]
+    },
+    {
+      "name": "JournalEntry",
+      "collection": "users/{userId}/entries",
+      "fields": [
+        { "name": "id", "type": "string", "description": "Entry document identifier" },
+        { "name": "userId", "type": "string", "description": "Owner user ID" },
+        { "name": "title", "type": "string", "description": "Journal or brainstorm title" },
+        { "name": "content", "type": "string", "description": "Primary journal content or brainstorm narrative (encrypted if vault enabled)" },
+        { "name": "promptMode", "type": "string", "description": "Session mode: freeform, socratic, strategic, or reframing" },
+        { "name": "messages", "type": "array", "description": "Multi-turn Gemini interaction messages history" },
+        { "name": "summary", "type": "string", "description": "Gemini-generated executive summary" },
+        { "name": "insights", "type": "array", "description": "Extracted key insights and breakthroughs" },
+        { "name": "actionItems", "type": "array", "description": "Extracted action items and next steps" },
+        { "name": "tags", "type": "array", "description": "Auto-categorized topic tags" },
+        { "name": "sentiment", "type": "string", "description": "Emotional/cognitive tone" },
+        { "name": "energyLevel", "type": "string", "description": "Subjective energy level assessment" },
+        { "name": "isEncrypted", "type": "boolean", "description": "Whether entry payload is encrypted with AES-256-GCM" },
+        { "name": "iv", "type": "string", "description": "Initialization vector for encrypted payload" },
+        { "name": "createdAt", "type": "timestamp", "description": "Creation timestamp" },
+        { "name": "updatedAt", "type": "timestamp", "description": "Last modified timestamp" }
+      ]
+    },
+    {
+      "name": "SecurityAuditLog",
+      "collection": "users/{userId}/auditLogs",
+      "fields": [
+        { "name": "id", "type": "string", "description": "Audit log identifier" },
+        { "name": "userId", "type": "string", "description": "Target user ID" },
+        { "name": "event", "type": "string", "description": "Action performed (LOGIN, GEMINI_INFERENCE, ENCRYPTION_KEY_DERIVED, ENTRY_SAVED, ENTRY_DELETED)" },
+        { "name": "threatScore", "type": "string", "description": "Safety evaluation score: SAFE, CAUTION, REJECTED" },
+        { "name": "piiRedacted", "type": "boolean", "description": "Whether PII or secrets were scrubbed from prompt" },
+        { "name": "timestamp", "type": "timestamp", "description": "Timestamp of security event" }
+      ]
+    }
+  ]
+}
