@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Firebase configuration files containing private project keys/secrets
+firebase-applet-config.json
+firebase_applet_config.xml
+*.secret.json
+

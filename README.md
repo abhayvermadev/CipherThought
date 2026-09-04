@@ -219,14 +219,23 @@ cp .env.example .env
 Populate the required keys:
 
 ```env
-# Required for Gemini AI capabilities
+# Required for Gemini AI capabilities (server-side secret)
 GEMINI_API_KEY="your-gemini-api-key"
 
 # Optional: Host URL (auto-injected in production environments)
 APP_URL="http://localhost:3000"
+
+# Optional: Firebase Client Configuration (if not using local gitignored firebase-applet-config.json)
+VITE_FIREBASE_API_KEY="your-firebase-api-key"
+VITE_FIREBASE_AUTH_DOMAIN="your-project.firebaseapp.com"
+VITE_FIREBASE_PROJECT_ID="your-project-id"
+VITE_FIREBASE_STORAGE_BUCKET="your-project.firebasestorage.app"
+VITE_FIREBASE_MESSAGING_SENDER_ID="your-sender-id"
+VITE_FIREBASE_APP_ID="your-app-id"
+VITE_FIREBASE_DATABASE_ID="your-firestore-database-id"
 ```
 
-> **Note**: Firebase configuration is maintained in `firebase-applet-config.json` or can be configured directly in `src/lib/firebase.ts`.
+> **Security Note**: `firebase-applet-config.json` is strictly ignored by `.gitignore` to prevent secret exposure in public repositories. For local setup outside AI Studio, copy `firebase-applet-config.example.json` to `firebase-applet-config.json` or populate the `VITE_FIREBASE_*` variables in `.env`.
 
 ### Installation & Local Execution
 
