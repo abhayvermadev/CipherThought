@@ -23,6 +23,10 @@ import {
   RefreshCw,
   Activity,
   Smile,
+  Cloud,
+  Clock,
+  Trash2,
+  RotateCcw,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { db, collection, doc, setDoc, serverTimestamp } from '../lib/firebase';
@@ -112,6 +116,32 @@ function TargetIcon(props: any) {
   );
 }
 
+const DRAFT_STORAGE_KEY_PREFIX = 'cipherthought_draft_';
+
+interface JournalDraft {
+  title: string;
+  content: string;
+  mode: SessionMode;
+  messages: ChatMessage[];
+  summary: string;
+  insights: string[];
+  actionItems: string[];
+  tags: string[];
+  sentiment: string;
+  sentimentScore?: number;
+  primaryMood: string;
+  emotionalDimensions?: EmotionalDimensions;
+  energyLevel: string;
+  cognitiveReframe: string;
+  isEncrypted: boolean;
+  savedAt: number;
+}
+
+function formatDraftTime(ts: number): string {
+  const date = new Date(ts);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export function JournalEditor({
   user,
   onOpenAuth,
@@ -124,6 +154,13 @@ export function JournalEditor({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+
+  // Local Storage Debounced Auto-Save State
+  const storageKey = `${DRAFT_STORAGE_KEY_PREFIX}${user ? user.uid : 'guest'}`;
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<number | null>(null);
+  const [draftRestoredBanner, setDraftRestoredBanner] = useState(false);
+  const hasLoadedDraftRef = useRef(false);
 
   // Gemini Executive Summarizer State
   const [summary, setSummary] = useState('');
@@ -154,6 +191,249 @@ export function JournalEditor({
   const recognitionRef = useRef<any>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Keep a ref to the latest draft state so beforeunload can save synchronously without stale closure issues
+  const latestDraftRef = useRef({
+    title,
+    content,
+    mode,
+    messages,
+    summary,
+    insights,
+    actionItems,
+    tags,
+    sentiment,
+    sentimentScore,
+    primaryMood,
+    emotionalDimensions,
+    energyLevel,
+    cognitiveReframe,
+    isEncrypted,
+  });
+
+  useEffect(() => {
+    latestDraftRef.current = {
+      title,
+      content,
+      mode,
+      messages,
+      summary,
+      insights,
+      actionItems,
+      tags,
+      sentiment,
+      sentimentScore,
+      primaryMood,
+      emotionalDimensions,
+      energyLevel,
+      cognitiveReframe,
+      isEncrypted,
+    };
+  }, [
+    title,
+    content,
+    mode,
+    messages,
+    summary,
+    insights,
+    actionItems,
+    tags,
+    sentiment,
+    sentimentScore,
+    primaryMood,
+    emotionalDimensions,
+    energyLevel,
+    cognitiveReframe,
+    isEncrypted,
+  ]);
+
+  // Restore draft from localStorage on mount or when user changes
+  useEffect(() => {
+    try {
+      // Look for user-specific draft, or fallback to guest draft if user just signed in
+      let raw = localStorage.getItem(storageKey);
+      if (!raw && user) {
+        raw = localStorage.getItem(`${DRAFT_STORAGE_KEY_PREFIX}guest`);
+      }
+
+      if (raw) {
+        const parsed: JournalDraft = JSON.parse(raw);
+        if (parsed) {
+          const hasContent = Boolean(
+            (parsed.title && parsed.title.trim()) ||
+            (parsed.content && parsed.content.trim()) ||
+            (parsed.messages && parsed.messages.length > 0) ||
+            (parsed.summary && parsed.summary.trim())
+          );
+
+          if (hasContent) {
+            if (parsed.title) setTitle(parsed.title);
+            if (parsed.content) setContent(parsed.content);
+            if (parsed.mode) setMode(parsed.mode);
+            if (parsed.messages && Array.isArray(parsed.messages)) setMessages(parsed.messages);
+            if (parsed.summary) setSummary(parsed.summary);
+            if (parsed.insights && Array.isArray(parsed.insights)) setInsights(parsed.insights);
+            if (parsed.actionItems && Array.isArray(parsed.actionItems)) setActionItems(parsed.actionItems);
+            if (parsed.tags && Array.isArray(parsed.tags)) setTags(parsed.tags);
+            if (parsed.sentiment) setSentiment(parsed.sentiment);
+            if (typeof parsed.sentimentScore === 'number') setSentimentScore(parsed.sentimentScore);
+            if (parsed.primaryMood) setPrimaryMood(parsed.primaryMood);
+            if (parsed.emotionalDimensions) setEmotionalDimensions(parsed.emotionalDimensions);
+            if (parsed.energyLevel) setEnergyLevel(parsed.energyLevel);
+            if (parsed.cognitiveReframe) setCognitiveReframe(parsed.cognitiveReframe);
+            if (typeof parsed.isEncrypted === 'boolean') {
+              setIsEncrypted(parsed.isEncrypted);
+              if (parsed.isEncrypted) setShowPassphraseInput(true);
+            }
+            if (parsed.savedAt) {
+              setLastSavedTime(parsed.savedAt);
+              setAutoSaveStatus('saved');
+              setDraftRestoredBanner(true);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to restore draft from localStorage:', err);
+    } finally {
+      hasLoadedDraftRef.current = true;
+    }
+  }, [storageKey, user]);
+
+  // Debounced LocalStorage auto-save mechanism
+  useEffect(() => {
+    // Prevent saving empty initial state before loading existing draft
+    if (!hasLoadedDraftRef.current) return;
+
+    const hasSubstance = Boolean(
+      title.trim() ||
+      content.trim() ||
+      messages.length > 0 ||
+      summary.trim()
+    );
+
+    if (!hasSubstance) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (_) {}
+      setAutoSaveStatus('idle');
+      setLastSavedTime(null);
+      return;
+    }
+
+    setAutoSaveStatus('saving');
+
+    const timer = setTimeout(() => {
+      try {
+        const now = Date.now();
+        const draftPayload: JournalDraft = {
+          title,
+          content,
+          mode,
+          messages,
+          summary,
+          insights,
+          actionItems,
+          tags,
+          sentiment,
+          sentimentScore,
+          primaryMood,
+          emotionalDimensions,
+          energyLevel,
+          cognitiveReframe,
+          isEncrypted,
+          savedAt: now,
+        };
+        localStorage.setItem(storageKey, JSON.stringify(draftPayload));
+        setLastSavedTime(now);
+        setAutoSaveStatus('saved');
+      } catch (err) {
+        console.warn('Auto-save to localStorage failed:', err);
+        setAutoSaveStatus('idle');
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [
+    title,
+    content,
+    mode,
+    messages,
+    summary,
+    insights,
+    actionItems,
+    tags,
+    sentiment,
+    sentimentScore,
+    primaryMood,
+    emotionalDimensions,
+    energyLevel,
+    cognitiveReframe,
+    isEncrypted,
+    storageKey,
+  ]);
+
+  // Flush to localStorage immediately if window is closing or refreshed
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const current = latestDraftRef.current;
+      const hasSubstance = Boolean(
+        current.title.trim() ||
+        current.content.trim() ||
+        current.messages.length > 0 ||
+        current.summary.trim()
+      );
+
+      if (hasSubstance) {
+        try {
+          const draftPayload: JournalDraft = {
+            ...current,
+            savedAt: Date.now(),
+          };
+          localStorage.setItem(storageKey, JSON.stringify(draftPayload));
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [storageKey]);
+
+  // Discard draft and reset editor
+  const handleClearDraft = () => {
+    const hasAnyContent = Boolean(title.trim() || content.trim() || messages.length > 0 || summary.trim());
+    if (hasAnyContent) {
+      const confirmDiscard = window.confirm(
+        'Discard this unsaved draft? All typed reflection content and active dialogue will be cleared.'
+      );
+      if (!confirmDiscard) return;
+    }
+
+    try {
+      localStorage.removeItem(storageKey);
+      localStorage.removeItem(`${DRAFT_STORAGE_KEY_PREFIX}guest`);
+    } catch (_) {}
+
+    setTitle('');
+    setContent('');
+    setMessages([]);
+    setSummary('');
+    setInsights([]);
+    setActionItems([]);
+    setTags([]);
+    setSentiment('');
+    setSentimentScore(undefined);
+    setPrimaryMood('');
+    setEmotionalDimensions(undefined);
+    setEnergyLevel('');
+    setCognitiveReframe('');
+    setIsEncrypted(false);
+    setPassphrase('');
+    setShowPassphraseInput(false);
+    setAutoSaveStatus('idle');
+    setLastSavedTime(null);
+    setDraftRestoredBanner(false);
+  };
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -474,6 +754,33 @@ export function JournalEditor({
 
       await setDoc(entryRef, payload);
 
+      // Clean up localStorage auto-save draft upon successful persistence to Firestore
+      try {
+        localStorage.removeItem(storageKey);
+        localStorage.removeItem(`${DRAFT_STORAGE_KEY_PREFIX}guest`);
+      } catch (_) {}
+      setAutoSaveStatus('idle');
+      setLastSavedTime(null);
+      setDraftRestoredBanner(false);
+
+      // Reset editor state for a fresh reflection session
+      setTitle('');
+      setContent('');
+      setMessages([]);
+      setSummary('');
+      setInsights([]);
+      setActionItems([]);
+      setTags([]);
+      setSentiment('');
+      setSentimentScore(undefined);
+      setPrimaryMood('');
+      setEmotionalDimensions(undefined);
+      setEnergyLevel('');
+      setCognitiveReframe('');
+      setIsEncrypted(false);
+      setPassphrase('');
+      setShowPassphraseInput(false);
+
       setStatusMessage({
         type: 'success',
         text: `Saved to isolated Firestore namespace (/users/${user.uid.slice(0, 6)}.../entries) with zero-leakage guarantee!`,
@@ -501,13 +808,48 @@ export function JournalEditor({
           <h2 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2 font-display">
             Personal Reflection & Brainstorming Studio
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Real-time multi-turn dialogue with Gemini • Zero-trust server keys • Isolated Cloud Firestore
-          </p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">
+            <span>Real-time multi-turn dialogue with Gemini • Zero-trust server keys • Isolated Cloud Firestore</span>
+            <span className="hidden sm:inline text-slate-300">•</span>
+            {/* Debounced Local Storage Auto-save Status */}
+            <div className="flex items-center gap-1.5 font-medium">
+              {autoSaveStatus === 'saving' ? (
+                <span className="inline-flex items-center gap-1 text-blue-600">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span>Auto-saving draft...</span>
+                </span>
+              ) : lastSavedTime ? (
+                <span
+                  className="inline-flex items-center gap-1 text-slate-600"
+                  title={`Local draft automatically saved to browser storage at ${new Date(lastSavedTime).toLocaleTimeString()}`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Draft saved {formatDraftTime(lastSavedTime)}</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-slate-400">
+                  <Cloud className="h-3.5 w-3.5" />
+                  <span>Auto-save active</span>
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Discard / Clear Draft */}
+          {(title.trim() || content.trim() || messages.length > 0 || summary.trim()) && (
+            <button
+              id="clear-draft-btn"
+              onClick={handleClearDraft}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition shadow-2xs"
+              title="Clear current draft and start fresh"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Discard Draft</span>
+            </button>
+          )}
           {/* Security Pre-flight Status Indicator */}
           <button
             onClick={onOpenSecurityCockpit}
@@ -582,6 +924,33 @@ export function JournalEditor({
           </button>
         </div>
       </div>
+
+      {/* Draft Restored Notification Banner */}
+      {draftRestoredBanner && (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50/90 px-4 py-2.5 text-xs text-blue-900 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+            <span>
+              <strong>Unsaved draft restored:</strong> Recovered your in-progress reflection from{' '}
+              {lastSavedTime ? formatDraftTime(lastSavedTime) : 'a previous session'}.
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleClearDraft}
+              className="font-semibold text-red-600 hover:text-red-800 underline underline-offset-2"
+            >
+              Discard Draft
+            </button>
+            <button
+              onClick={() => setDraftRestoredBanner(false)}
+              className="font-semibold text-blue-700 hover:text-blue-900"
+            >
+              Keep & Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Passphrase Drawer if Encrypted */}
       {showPassphraseInput && (
